@@ -157,6 +157,47 @@ if ($tsIp) {
     Write-Warn "Не удалось получить Tailscale IP — продолжаю, но проверь позже."
 }
 
+# --- 5b. OpenSSH Server (для удалённого SSH-доступа админа) ---
+Write-Step "Настраиваю OpenSSH Server"
+Write-Host @"
+  В отличие от Linux, Windows не имеет встроенного SSH-сервера у Tailscale.
+  Поэтому ставлю стандартный OpenSSH Server от Microsoft и открываю
+  порт 22 ТОЛЬКО для Tailscale-сети (никаких портов наружу в интернет).
+"@ -ForegroundColor Cyan
+
+try {
+    $sshCap = Get-WindowsCapability -Online -Name "OpenSSH.Server*" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($sshCap -and $sshCap.State -ne "Installed") {
+        Write-Host "  Устанавливаю OpenSSH.Server..." -ForegroundColor Cyan
+        Add-WindowsCapability -Online -Name $sshCap.Name | Out-Null
+        Write-Ok "OpenSSH Server установлен"
+    } else {
+        Write-Ok "OpenSSH Server уже установлен"
+    }
+
+    # Запускаем + автозапуск
+    Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
+    Start-Service -Name sshd -ErrorAction SilentlyContinue
+    if ((Get-Service sshd -ErrorAction SilentlyContinue).Status -eq "Running") {
+        Write-Ok "Сервис sshd запущен"
+    } else {
+        Write-Warn "Сервис sshd не стартанул — проверь логи"
+    }
+
+    # Файрвол: открываем 22 порт
+    if (-not (Get-NetFirewallRule -Name "sshd" -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -Name "sshd" -DisplayName "OpenSSH Server (sshd)" `
+            -Enabled True -Direction Inbound -Protocol TCP -Action Allow `
+            -LocalPort 22 | Out-Null
+        Write-Ok "Файрвол: разрешён вход на порт 22"
+    } else {
+        Write-Ok "Файрвол: правило уже существует"
+    }
+} catch {
+    Write-Warn "Не удалось полностью настроить OpenSSH: $_"
+    Write-Warn "Админ может настроить вручную — установка продолжается."
+}
+
 # --- 6. malinakod ---
 Write-Step "Устанавливаю пакет malinakod"
 & python -m pip install --upgrade --quiet malinakod
