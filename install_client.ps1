@@ -15,6 +15,17 @@
 
 $ErrorActionPreference = "Stop"
 
+# --- UTF-8 для корректного отображения кириллицы в Windows PowerShell 5.1 ---
+# (PS5.1 по дефолту использует cp1251/cp866 в консоли и без этих строк
+# выводит кириллицу как "??????" даже если сам скрипт в UTF-8.)
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+    chcp 65001 > $null 2>&1
+} catch {
+    # Если что-то не сработало (редкая локаль) — просто идём дальше, текст будет в ascii-fallback
+}
+
 # --- Цвета и заголовок ---
 function Write-Step($msg) { Write-Host ""; Write-Host "==> $msg" -ForegroundColor Magenta }
 function Write-Ok($msg)   { Write-Host "  [OK] $msg" -ForegroundColor Green }
