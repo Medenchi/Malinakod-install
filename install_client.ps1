@@ -42,246 +42,250 @@ Write-Host @"
  | |  | | (_| | | | | | | (_| | . \ (_) | (_| |
  |_|  |_|\__,_|_|_|_| |_|\__,_|_|\_\___/ \__,_|
 
-  MalinaKod -- Client Installer for Windows
-  Etot skript avtomaticheski:
-    - postavit Python (esli net)
-    - postavit Tailscale (besplatnaya mesh-set dlya bezopasnogo dostupa)
-    - postavit paket malinakod
-    - vklyuchit OpenSSH Server i otkroet port 22
-    - poprosit zadat parol dlya tvoego Windows-akkaunta (dlya SSH)
-    - poprosit litsenzionnyy klyuch
-    - nastroit avtozapusk
+  MalinaKod Client Installer for Windows 10/11
 
-  Prosto sleduy instruktsiyam nizhe.
+  Skript vypolnit sleduyuschie operatsii:
+    1. Proverka prav administratora
+    2. Ustanovka Python 3.10+ (cherez winget)
+    3. Ustanovka i nastroyka Tailscale (mesh-VPN dlya udalennogo dostupa)
+    4. Ustanovka paketa malinakod cherez pip
+    5. Vklyuchenie OpenSSH Server, otkrytie portov 22 i 17731
+    6. Nastroyka parolya uchetnoy zapisi Windows dlya SSH-dostupa
+    7. Aktivatsiya litsenzii
+    8. Sozdanie zadachi avtozapuska v Task Scheduler
+
+  Sleduyte instruktsiyam na ekrane.
 
 "@ -ForegroundColor Cyan
 
 # --- 1. Admin check ---
-Write-Step "Step 1/9: Checking admin rights"
+Write-Step "Shag 1/9: Proverka prav administratora"
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]"Administrator")
 if (-not $isAdmin) {
-    Write-Err "Skript nuzhno zapuskat OT IMENI ADMINISTRATORA!"
+    Write-Err "Trebuyutsya prava administratora."
     Write-Host ""
-    Write-Host "  Chto sdelat:" -ForegroundColor Yellow
-    Write-Host "    1. Zakroy etot PowerShell"
-    Write-Host "    2. Nazhmi Win + X"
-    Write-Host '    3. Vyberi "Terminal (administrator)" ili "PowerShell (administrator)"'
-    Write-Host "    4. Vstav tu zhe komandu chto prislal admin"
+    Write-Host "  Dlya zapuska s pravami administratora:" -ForegroundColor Yellow
+    Write-Host "    1. Zakroyte tekuschiy PowerShell"
+    Write-Host "    2. Nazhmite Win+X"
+    Write-Host '    3. Vyberite "Terminal (administrator)" ili "PowerShell (administrator)"'
+    Write-Host "    4. Povtorite komandu zapuska"
     Write-Host ""
-    Read-Host "Press Enter to exit"
+    Read-Host "Nazhmite Enter dlya vyhoda"
     exit 1
 }
-Write-Ok "Admin rights OK"
+Write-Ok "Prava administratora podtverzhdeny"
 
 # --- 2. winget ---
-Write-Step "Step 2/9: Checking winget (Windows package manager)"
+Write-Step "Shag 2/9: Proverka nalichiya winget"
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-    Write-Err "winget ne nayden. Eto standartnyy Windows-instrument."
+    Write-Err "winget ne obnaruzhen v sisteme."
     Write-Host ""
-    Write-Host "  Vklyuchi ego tak:" -ForegroundColor Yellow
-    Write-Host "    1. Otkroy Microsoft Store"
-    Write-Host '    2. Naydi "App Installer" (Ustanovshchik prilozheniy)'
-    Write-Host "    3. Nazhmi Update / Obnovit"
-    Write-Host "    4. Perezapusti etot skript"
+    Write-Host "  winget eto standartnyy paketnyy menedzher Windows." -ForegroundColor Yellow
+    Write-Host "  Dlya ego ustanovki ili obnovleniya:" -ForegroundColor Yellow
+    Write-Host "    1. Otkroyte Microsoft Store"
+    Write-Host '    2. Naydite prilozhenie "App Installer"'
+    Write-Host "    3. Vypolnite ego ustanovku ili obnovlenie"
+    Write-Host "    4. Povtorite zapusk skripta"
     Write-Host ""
-    Read-Host "Press Enter to exit"
+    Read-Host "Nazhmite Enter dlya vyhoda"
     exit 1
 }
-Write-Ok "winget found"
+Write-Ok "winget obnaruzhen"
 
 # --- 3. Python ---
-Write-Step "Step 3/9: Checking Python"
+Write-Step "Shag 3/9: Proverka i ustanovka Python"
 $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
 $needPython = $true
 if ($pythonCmd) {
     $pyVer = & python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
     if ($pyVer -and ([version]$pyVer) -ge ([version]"3.10")) {
-        Write-Ok "Python $pyVer already installed"
+        Write-Ok "Python $pyVer ustanovlen"
         $needPython = $false
     } else {
-        Write-Warn "Python $pyVer too old (need 3.10+). Installing fresh one."
+        Write-Warn "Obnaruzhena ustarevshaya versiya Python $pyVer (trebuetsya 3.10 ili vyshe). Budet ustanovlena novaya versiya."
     }
 }
 
 if ($needPython) {
-    Write-Host "  Installing Python 3.12 (takes a couple of minutes)..." -ForegroundColor Cyan
+    Write-Host "  Vypolnyaetsya ustanovka Python 3.12. Eto mozhet zanyat neskolko minut..." -ForegroundColor Cyan
     winget install --id Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
-    Write-Ok "Python installed"
-    Write-Host "  Refreshing PATH in current session..." -ForegroundColor Cyan
+    Write-Ok "Python uspeshno ustanovlen"
+    Write-Host "  Obnovlenie peremennoy PATH dlya tekuschey sessii..." -ForegroundColor Cyan
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
     if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-        Write-Err "Python installed but not in PATH. Close PowerShell, open as admin again, and rerun the script."
-        Read-Host "Press Enter to exit"
+        Write-Err "Python ustanovlen, no nedostupen v PATH. Zakroyte PowerShell, otkroyte zanovo s pravami administratora i povtorite zapusk skripta."
+        Read-Host "Nazhmite Enter dlya vyhoda"
         exit 1
     }
 }
 
 # --- 4. Tailscale install ---
-Write-Step "Step 4/9: Checking Tailscale"
+Write-Step "Shag 4/9: Proverka i ustanovka Tailscale"
 $tailscaleExe = "C:\Program Files\Tailscale\tailscale.exe"
 if (-not (Test-Path $tailscaleExe)) {
     Write-Host @"
-  Tailscale -- besplatnaya programma kotoraya sozdaet zashchischennuyu set
-  mezhdu tvoim kompyuterom i kompyuterom admina. Nuzhna chtoby admin mog
-  podklyuchatsya k tebe BEZ otkrytiya portov v internet (polnostyu bezopasno).
-  Akkaunt besplatnyy.
+  Tailscale eto besplatnoe reshenie mesh-VPN, obespechivayushchee zashchischennoe
+  soedinenie mezhdu rabochey stantsiey klienta i administratorom. Tailscale
+  pozvolyaet ne otkryvat porty na vneshnem perimetre seti.
 
-  Sejchas ya ee ustanovlyu...
+  Vypolnyaetsya ustanovka...
 "@ -ForegroundColor Cyan
     winget install --id tailscale.tailscale --silent --accept-package-agreements --accept-source-agreements
-    Write-Ok "Tailscale installed"
+    Write-Ok "Tailscale uspeshno ustanovlen"
 } else {
-    Write-Ok "Tailscale already installed"
+    Write-Ok "Tailscale uzhe ustanovlen"
 }
 
 # --- 5. Tailscale login ---
-Write-Step "Step 5/9: Connecting Tailscale"
+Write-Step "Shag 5/9: Avtorizatsiya Tailscale"
 $tsStatus = & $tailscaleExe status 2>&1
 if ($tsStatus -match "Logged out" -or $tsStatus -match "NeedsLogin" -or $LASTEXITCODE -ne 0) {
     Write-Host @"
-  Sejchas otkroetsya brauzer s predlozheniem voyti v Tailscale.
-  Ispolzuy TOT ZHE akkaunt chto i u tvoego admina (on skazhet kakoy).
-  Esli akkaunta net -- na stranitse budet knopka "Sign up"
-  (zaregistrirovatsya cherez Google/Microsoft, 10 sekund).
+  Sejchas budet otkryt brauzer dlya avtorizatsii v Tailscale.
+  Ispolzuyte uchetnuyu zapis, ukazannuyu administratorom.
+  Esli uchetnoy zapisi net, sozdayte ee na stranitse cherez "Sign up"
+  (vozmozhna registratsiya cherez Google ili Microsoft).
 
-  Posle togo kak zaloginishsya -- zakroy vkladku i vernis syuda.
+  Posle uspeshnoy avtorizatsii zakroyte vkladku brauzera i vernites k konsoli.
 "@ -ForegroundColor Cyan
-    Write-Host "  Running tailscale up..." -ForegroundColor Cyan
+    Write-Host "  Vypolnyaetsya komanda 'tailscale up'..." -ForegroundColor Cyan
     Start-Process -FilePath $tailscaleExe -ArgumentList "up" -Wait
-    Write-Ok "Tailscale connected"
+    Write-Ok "Tailscale podklyuchen"
 } else {
-    Write-Ok "Tailscale already connected"
+    Write-Ok "Tailscale uzhe podklyuchen"
 }
 
 $tsIp = & $tailscaleExe ip -4 2>&1 | Select-Object -First 1
 if ($tsIp) {
-    Write-Ok "Your Tailscale IP: $tsIp"
+    Write-Ok "Naznachen Tailscale IP: $tsIp"
 } else {
-    Write-Warn "Could not get Tailscale IP -- continuing, check later."
+    Write-Warn "Ne udalos poluchit Tailscale IP. Prodolzhaem ustanovku."
 }
 
 # --- 6. OpenSSH Server ---
-Write-Step "Step 6/9: Setting up OpenSSH Server"
+Write-Step "Shag 6/9: Ustanovka i nastroyka OpenSSH Server"
 Write-Host @"
-  V otlichie ot Linux, Windows ne imeet vstroennogo SSH-servera u Tailscale.
-  Stavlyu standartnyy OpenSSH Server ot Microsoft i otkryvayu port 22 dlya
-  Tailscale-seti (nikakih portov v internet).
+  Vypolnyaetsya ustanovka OpenSSH Server ot Microsoft.
+  Otkryvayutsya porty 22 (SSH) i 17731 (malinakod agent API)
+  v vnutrennem fayrvolle Windows. Eti porty dostupny tolko
+  v predelakh Tailscale-seti.
 "@ -ForegroundColor Cyan
 
 try {
     $sshCap = Get-WindowsCapability -Online -Name "OpenSSH.Server*" -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($sshCap -and $sshCap.State -ne "Installed") {
-        Write-Host "  Installing OpenSSH.Server..." -ForegroundColor Cyan
+        Write-Host "  Vypolnyaetsya ustanovka komponenta OpenSSH.Server..." -ForegroundColor Cyan
         Add-WindowsCapability -Online -Name $sshCap.Name | Out-Null
-        Write-Ok "OpenSSH Server installed"
+        Write-Ok "OpenSSH Server ustanovlen"
     } else {
-        Write-Ok "OpenSSH Server already installed"
+        Write-Ok "OpenSSH Server uzhe ustanovlen"
     }
 
     Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
     Start-Service -Name sshd -ErrorAction SilentlyContinue
     if ((Get-Service sshd -ErrorAction SilentlyContinue).Status -eq "Running") {
-        Write-Ok "sshd service running"
+        Write-Ok "Sluzhba sshd zapuschena"
     } else {
-        Write-Warn "sshd did not start -- check logs"
+        Write-Warn "Sluzhba sshd ne zapustilas. Proverte sistemnyy zhurnal."
     }
 
     if (-not (Get-NetFirewallRule -Name "sshd" -ErrorAction SilentlyContinue)) {
         New-NetFirewallRule -Name "sshd" -DisplayName "OpenSSH Server (sshd)" `
             -Enabled True -Direction Inbound -Protocol TCP -Action Allow `
             -LocalPort 22 | Out-Null
-        Write-Ok "Firewall: port 22 allowed"
+        Write-Ok "Pravilo fayrvola: port 22 razreshen (SSH)"
     } else {
-        Write-Ok "Firewall: SSH rule already exists"
+        Write-Ok "Pravilo fayrvola dlya SSH uzhe sozdano"
     }
 
-    # Port 17731 -- malinakod agent (signed-HMAC API for admin to push/restart services).
+    # Port 17731 -- malinakod agent API s HMAC-podpisyu komand ot administratora.
     if (-not (Get-NetFirewallRule -Name "malinakod-agent" -ErrorAction SilentlyContinue)) {
         New-NetFirewallRule -Name "malinakod-agent" -DisplayName "MalinaKod Agent (17731)" `
             -Enabled True -Direction Inbound -Protocol TCP -Action Allow `
             -LocalPort 17731 | Out-Null
-        Write-Ok "Firewall: port 17731 allowed (malinakod agent)"
+        Write-Ok "Pravilo fayrvola: port 17731 razreshen (malinakod agent)"
     } else {
-        Write-Ok "Firewall: malinakod agent rule already exists"
+        Write-Ok "Pravilo fayrvola dlya malinakod agent uzhe sozdano"
     }
 } catch {
-    Write-Warn "Could not fully configure OpenSSH: $_"
-    Write-Warn "Admin can configure manually -- continuing."
+    Write-Warn "Ne udalos polnostyu nastroit OpenSSH: $_"
+    Write-Warn "Administrator mozhet vypolnit nastroyku vruchnuyu. Prodolzhaem."
 }
 
 # --- 7. Windows password for SSH ---
-Write-Step "Step 7/9: Setting Windows password for SSH access"
+Write-Step "Shag 7/9: Nastroyka parolya uchetnoy zapisi Windows dlya SSH"
 Write-Host @"
-  Sejchas pridumay parol pod kotorym admin budet zahodit k tebe po SSH.
-  Eto parol tvoego Windows-akkaunta '$env:USERNAME' (tot zhe chto
-  ispolzuetsya dlya vhoda v Windows).
+  Dlya udalennogo dostupa po SSH neobhodim parol uchetnoy zapisi Windows.
+  Tekuschiy polzovatel: '$env:USERNAME'.
 
-  Esli u tebya UZHE EST svoy parol i ty ego pomnish -- nazhmi Enter
-  chtoby propustit etot shag, i soobschi adminu svoy sushchestvuyuschiy parol.
+  Variant 1: U vas uzhe est parol ot uchetnoy zapisi.
+             Nazhmite Enter dlya propuska shaga i peredayte
+             sushchestvuyuschiy parol administratoru.
 
-  Esli parolya ne bylo ili ne pomnish -- vvedi novyy nizhe, on srazu primenitsya.
+  Variant 2: Parol ne zadan ili zabyt.
+             Vvedite novyy parol nizhe. On budet primenen nemedlenno.
 
-  VAZHNO: parol nuzhno vvodit OBYCHNYMI BUKVAMI, ne kommentariyami!
-  Naprimer: MalinaPass2026
+  VNIMANIE: vvodimoe znachenie stanet parolem uchetnoy zapisi Windows.
+            Vvodite konkretnuyu strocku (naprimer: MalinaPass2026),
+            a ne kommentarii ili instruktsii.
 "@ -ForegroundColor Cyan
 
-$newPass = Read-Host "  New password (or Enter to skip)" -AsSecureString
+$newPass = Read-Host "  Novyy parol (Enter dlya propuska)" -AsSecureString
 $plainPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
     [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($newPass)
 )
 
 if ([string]::IsNullOrWhiteSpace($plainPass)) {
-    Write-Warn "Password not changed. Tell admin your existing Windows password."
+    Write-Warn "Parol ne izmenen. Soobschite administratoru tekuschiy parol uchetnoy zapisi."
 } else {
     try {
         Set-LocalUser -Name $env:USERNAME -Password $newPass -ErrorAction Stop
-        Write-Ok "Password set for account '$env:USERNAME'"
+        Write-Ok "Parol uchetnoy zapisi '$env:USERNAME' uspeshno ustanovlen"
         Write-Host ""
-        Write-Host "  *** VAZHNO ***" -ForegroundColor Yellow
-        Write-Host "  Soobschi etot parol ADMINU (tomu kto prislal ustanovshchik)." -ForegroundColor Yellow
-        Write-Host "  Bez nego on ne smozhet podklyuchitsya po SSH." -ForegroundColor Yellow
+        Write-Host "  TREBUETSYA DEYSTVIE:" -ForegroundColor Yellow
+        Write-Host "  Peredayte ustanovlennyy parol administratoru, prislavshemu ustanovshchik." -ForegroundColor Yellow
+        Write-Host "  Bez parolya udalennoe podklyuchenie po SSH ne budet rabotat." -ForegroundColor Yellow
         Write-Host ""
     } catch {
-        Write-Warn "Could not set password via Set-LocalUser: $_"
-        Write-Warn "Backup: run in admin cmd: net user $env:USERNAME <password>"
+        Write-Warn "Ne udalos zadat parol cherez Set-LocalUser: $_"
+        Write-Warn "Alternativnyy sposob: v cmd s pravami administratora vypolnite: net user $env:USERNAME <parol>"
     }
 }
 
 # --- 8. malinakod ---
-Write-Step "Step 8/9: Installing malinakod package"
+Write-Step "Shag 8/9: Ustanovka paketa malinakod"
 & python -m pip install --upgrade --quiet malinakod
 if ($LASTEXITCODE -ne 0) {
-    Write-Err "Could not install malinakod. Check internet and retry."
-    Read-Host "Press Enter to exit"
+    Write-Err "Ne udalos ustanovit paket malinakod. Proverte internet-soedinenie i povtorite zapusk."
+    Read-Host "Nazhmite Enter dlya vyhoda"
     exit 1
 }
 $mlkVer = & python -m pip show malinakod 2>$null | Select-String "^Version: " | ForEach-Object { $_.ToString().Split(" ")[1] }
-Write-Ok "malinakod installed (version $mlkVer)"
+Write-Ok "Paket malinakod ustanovlen (versiya $mlkVer)"
 
 # --- 9. License activation ---
-Write-Step "Step 9/9: License activation"
+Write-Step "Shag 9/9: Aktivatsiya litsenzii"
 $licensePath = Join-Path $env:USERPROFILE ".malinakod\license.json"
 if (Test-Path $licensePath) {
-    Write-Ok "License already activated"
+    Write-Ok "Litsenziya uzhe aktivirovana"
 } else {
     Write-Host @"
-  Sejchas vvedi litsenzionnyy klyuch kotoryy prislal admin.
-  Eto ODNA dlinnaya stroka vida: MLNK-S-XXXXX-XXXXX-...
+  Vvedite litsenzionnyy klyuch, predostavlennyy administratorom.
+  Format klyucha: MLNK-S-XXXXX-XXXXX-...
 
-  Skopiruy iz soobscheniya admina i vstav syuda.
-  (Chtoby vstavit v PowerShell -- KLIK PRAVOY KNOPKOY MYSHI)
+  Vstavka klyucha v PowerShell vypolnyaetsya pravoy knopkoy myshi.
 "@ -ForegroundColor Cyan
 
     $key = ""
     while ([string]::IsNullOrWhiteSpace($key)) {
-        $key = Read-Host "  License key"
+        $key = Read-Host "  Litsenzionnyy klyuch"
         $key = $key.Trim()
         if ([string]::IsNullOrWhiteSpace($key)) {
-            Write-Warn "Empty key, try again"
+            Write-Warn "Pustoe znachenie. Povtorite vvod."
         }
     }
 
-    Write-Host "  Activating..." -ForegroundColor Cyan
+    Write-Host "  Vypolnyaetsya aktivatsiya..." -ForegroundColor Cyan
     New-Item -ItemType Directory -Force -Path (Split-Path $licensePath) | Out-Null
 
     $existingPyPids = @(Get-Process -Name python -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
@@ -313,17 +317,17 @@ if (Test-Path $licensePath) {
     } | Stop-Process -Force -ErrorAction SilentlyContinue
 
     if (-not (Test-Path $licensePath)) {
-        Write-Err "Activation failed. Maybe key is wrong."
-        Write-Host "  Try manually: " -ForegroundColor Yellow -NoNewline
+        Write-Err "Aktivatsiya ne vypolnena. Vozmozhno, ukazan nevernyy klyuch."
+        Write-Host "  Dlya ruchnoy aktivatsii vypolnite: " -ForegroundColor Yellow -NoNewline
         Write-Host "python -m malinakod" -ForegroundColor White
-        Read-Host "Press Enter to exit"
+        Read-Host "Nazhmite Enter dlya vyhoda"
         exit 1
     }
-    Write-Ok "License activated: $licensePath"
+    Write-Ok "Litsenziya aktivirovana, fayl: $licensePath"
 }
 
 # --- Scheduled Task ---
-Write-Step "Setting up autostart (Scheduled Task)"
+Write-Step "Sozdanie zadachi avtozapuska v Task Scheduler"
 $taskName = "MalinaKod"
 
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
@@ -335,24 +339,24 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description "MalinaKod Client (auto-sync + heartbeat)" | Out-Null
-Write-Ok "Scheduled Task '$taskName' created"
+Write-Ok "Zadacha '$taskName' zaregistrirovana v Task Scheduler"
 
 # --- Start ---
-Write-Step "Starting client"
+Write-Step "Zapusk klienta MalinaKod"
 Start-ScheduledTask -TaskName $taskName
 Start-Sleep -Seconds 2
-Write-Ok "Client started (look for minimized window in taskbar)"
+Write-Ok "Klient zapuschen v fonovom rezhime (svernutoe okno na paneli zadach)"
 
 # --- Final ---
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Green
-Write-Host "  GOTOVO! / DONE!" -ForegroundColor Green
+Write-Host "  USTANOVKA ZAVERSHENA" -ForegroundColor Green
 Write-Host "============================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Chto dalshe:" -ForegroundColor Cyan
-Write-Host "    - Klient rabotaet v fone (svernutoe okno)"
-Write-Host "    - Pri perezagruzke kompyutera on stantet sam"
-Write-Host "    - Tvoy Tailscale IP: $tsIp"
+Write-Host "  Tekuschee sostoyanie:" -ForegroundColor Cyan
+Write-Host "    - Klient MalinaKod zapuschen i rabotaet v fone"
+Write-Host "    - Avtozapusk pri vhode v Windows nastroyen"
+Write-Host "    - Tailscale IP: $tsIp"
 Write-Host ""
 Write-Host "  Poleznye komandy (v obychnom PowerShell):" -ForegroundColor Cyan
 Write-Host "    Restart:    Stop-ScheduledTask MalinaKod; Start-ScheduledTask MalinaKod"
