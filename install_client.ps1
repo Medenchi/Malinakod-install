@@ -198,6 +198,42 @@ try {
     Write-Warn "Админ может настроить вручную — установка продолжается."
 }
 
+# --- 5c. Пароль для SSH ---
+Write-Step "Задаю пароль Windows-аккаунта для SSH-доступа"
+Write-Host @"
+  Сейчас придумай пароль, под которым админ будет заходить к тебе
+  по SSH. Это пароль твоего Windows-аккаунта '$env:USERNAME' (тот же
+  что используется для входа в Windows).
+
+  Если у тебя УЖЕ ЕСТЬ свой пароль и ты его помнишь — нажми Enter
+  чтобы пропустить этот шаг и сообщить админу свой существующий пароль.
+
+  Если пароля не было или не помнишь — введи новый ниже,
+  он сразу применится.
+"@ -ForegroundColor Cyan
+
+$newPass = Read-Host "  Новый пароль (или Enter чтобы пропустить)" -AsSecureString
+$plainPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+    [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($newPass)
+)
+
+if ([string]::IsNullOrWhiteSpace($plainPass)) {
+    Write-Warn "Пароль не изменён. Сообщи админу свой существующий пароль Windows."
+} else {
+    try {
+        Set-LocalUser -Name $env:USERNAME -Password $newPass -ErrorAction Stop
+        Write-Ok "Пароль установлен для аккаунта '$env:USERNAME'"
+        Write-Host ""
+        Write-Host "  *** ВАЖНО ***" -ForegroundColor Yellow
+        Write-Host "  Сообщи этот пароль АДМИНУ (тому кто прислал установщик)." -ForegroundColor Yellow
+        Write-Host "  Без него он не сможет подключиться к тебе по SSH." -ForegroundColor Yellow
+        Write-Host ""
+    } catch {
+        Write-Warn "Не удалось установить пароль: $_"
+        Write-Warn "Запасной вариант — выполни в cmd от админа: net user $env:USERNAME <твой_пароль>"
+    }
+}
+
 # --- 6. malinakod ---
 Write-Step "Устанавливаю пакет malinakod"
 & python -m pip install --upgrade --quiet malinakod
