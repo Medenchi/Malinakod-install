@@ -192,7 +192,17 @@ try {
             -LocalPort 22 | Out-Null
         Write-Ok "Firewall: port 22 allowed"
     } else {
-        Write-Ok "Firewall: rule already exists"
+        Write-Ok "Firewall: SSH rule already exists"
+    }
+
+    # Port 17731 -- malinakod agent (signed-HMAC API for admin to push/restart services).
+    if (-not (Get-NetFirewallRule -Name "malinakod-agent" -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -Name "malinakod-agent" -DisplayName "MalinaKod Agent (17731)" `
+            -Enabled True -Direction Inbound -Protocol TCP -Action Allow `
+            -LocalPort 17731 | Out-Null
+        Write-Ok "Firewall: port 17731 allowed (malinakod agent)"
+    } else {
+        Write-Ok "Firewall: malinakod agent rule already exists"
     }
 } catch {
     Write-Warn "Could not fully configure OpenSSH: $_"
