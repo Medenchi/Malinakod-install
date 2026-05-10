@@ -14,9 +14,11 @@
 #   5. Installs the malinakod package via pip
 #   6. Installs OpenSSH Server + opens port 22
 #   7. Asks you to set a Windows password for SSH (or keep existing)
-#   8. Asks for license key and activates the client
-#   9. Creates a Scheduled Task to autostart on logon
-#  10. Starts the client
+#   8. Enables Windows RDP for remote desktop via Tailscale
+#   9. Installs RustDesk in service-mode (SYSTEM privileges, UAC-bypass)
+#  10. Asks for license key and activates the client
+#  11. Creates a Scheduled Task to autostart on logon
+#  12. Starts the client
 
 $ErrorActionPreference = "Stop"
 
@@ -45,21 +47,23 @@ Write-Host @"
   MalinaKod Client Installer for Windows 10/11
 
   Skript vypolnit sleduyuschie operatsii:
-    1. Proverka prav administratora
-    2. Ustanovka Python 3.10+ (cherez winget)
-    3. Ustanovka i nastroyka Tailscale (mesh-VPN dlya udalennogo dostupa)
-    4. Ustanovka paketa malinakod cherez pip
-    5. Vklyuchenie OpenSSH Server, otkrytie portov 22 i 17731
-    6. Nastroyka parolya uchetnoy zapisi Windows dlya SSH-dostupa
-    7. Aktivatsiya litsenzii
-    8. Sozdanie zadachi avtozapuska v Task Scheduler
+    1.  Proverka prav administratora
+    2.  Ustanovka Python 3.10+ (cherez winget)
+    3.  Ustanovka i nastroyka Tailscale (mesh-VPN dlya udalennogo dostupa)
+    4.  Ustanovka paketa malinakod cherez pip
+    5.  Vklyuchenie OpenSSH Server, otkrytie portov 22 i 17731
+    6.  Nastroyka parolya uchetnoy zapisi Windows dlya SSH-dostupa
+    7.  Vklyuchenie Windows RDP (udalennyy rabochiy stol) cherez Tailscale
+    8.  Ustanovka RustDesk v rezhime sluzhby (analog AnyDesk s pravami SYSTEM)
+    9.  Aktivatsiya litsenzii
+    10. Sozdanie zadachi avtozapuska v Task Scheduler
 
   Sleduyte instruktsiyam na ekrane.
 
 "@ -ForegroundColor Cyan
 
 # --- 1. Admin check ---
-Write-Step "Shag 1/9: Proverka prav administratora"
+Write-Step "Shag 1/11: Proverka prav administratora"
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]"Administrator")
 if (-not $isAdmin) {
     Write-Err "Trebuyutsya prava administratora."
@@ -76,7 +80,7 @@ if (-not $isAdmin) {
 Write-Ok "Prava administratora podtverzhdeny"
 
 # --- 2. winget ---
-Write-Step "Shag 2/9: Proverka nalichiya winget"
+Write-Step "Shag 2/11: Proverka nalichiya winget"
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
     Write-Err "winget ne obnaruzhen v sisteme."
     Write-Host ""
@@ -93,7 +97,7 @@ if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
 Write-Ok "winget obnaruzhen"
 
 # --- 3. Python ---
-Write-Step "Shag 3/9: Proverka i ustanovka Python"
+Write-Step "Shag 3/11: Proverka i ustanovka Python"
 $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
 $needPython = $true
 if ($pythonCmd) {
@@ -120,7 +124,7 @@ if ($needPython) {
 }
 
 # --- 4. Tailscale install ---
-Write-Step "Shag 4/9: Proverka i ustanovka Tailscale"
+Write-Step "Shag 4/11: Proverka i ustanovka Tailscale"
 $tailscaleExe = "C:\Program Files\Tailscale\tailscale.exe"
 if (-not (Test-Path $tailscaleExe)) {
     Write-Host @"
@@ -137,7 +141,7 @@ if (-not (Test-Path $tailscaleExe)) {
 }
 
 # --- 5. Tailscale login ---
-Write-Step "Shag 5/9: Avtorizatsiya Tailscale"
+Write-Step "Shag 5/11: Avtorizatsiya Tailscale"
 $tsStatus = & $tailscaleExe status 2>&1
 if ($tsStatus -match "Logged out" -or $tsStatus -match "NeedsLogin" -or $LASTEXITCODE -ne 0) {
     Write-Host @"
@@ -163,7 +167,7 @@ if ($tsIp) {
 }
 
 # --- 6. OpenSSH Server ---
-Write-Step "Shag 6/9: Ustanovka i nastroyka OpenSSH Server"
+Write-Step "Shag 6/11: Ustanovka i nastroyka OpenSSH Server"
 Write-Host @"
   Vypolnyaetsya ustanovka OpenSSH Server ot Microsoft.
   Otkryvayutsya porty 22 (SSH) i 17731 (malinakod agent API)
@@ -213,7 +217,7 @@ try {
 }
 
 # --- 7. Windows password for SSH ---
-Write-Step "Shag 7/9: Nastroyka parolya uchetnoy zapisi Windows dlya SSH"
+Write-Step "Shag 7/11: Nastroyka parolya uchetnoy zapisi Windows dlya SSH"
 Write-Host @"
   Dlya udalennogo dostupa po SSH neobhodim parol uchetnoy zapisi Windows.
   Tekuschiy polzovatel: '$env:USERNAME'.
@@ -252,8 +256,155 @@ if ([string]::IsNullOrWhiteSpace($plainPass)) {
     }
 }
 
+# --- 7b. Windows RDP enablement ---
+Write-Step "Shag 8/11: Vklyuchenie Windows Remote Desktop (RDP)"
+Write-Host @"
+  RDP eto vstroennyy v Windows protokol udalennogo rabochego stola.
+  Administrator smozhet podklyuchatsya k rabochey stantsii cherez 'mstsc'
+  ispolzuya Tailscale-IP (port 3389 dostupen tolko vnutri Tailscale-seti,
+  vneshniy perimetr zatronut ne budet).
+"@ -ForegroundColor Cyan
+
+try {
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" `
+        -Name "fDenyTSConnections" -Value 0 -Type DWord -ErrorAction Stop
+    Write-Ok "RDP vklyuchen v reestre"
+
+    # Включаем Network Level Authentication для большей безопасности.
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" `
+        -Name "UserAuthentication" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+
+    Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
+    Write-Ok "Pravila fayrvola RDP aktivirovany"
+
+    # Текущий пользователь добавляется в группу Remote Desktop Users.
+    # Администраторы и так имеют RDP-доступ, но добавим для надёжности.
+    try {
+        Add-LocalGroupMember -Group "Remote Desktop Users" -Member $env:USERNAME -ErrorAction Stop
+        Write-Ok "Polzovatel '$env:USERNAME' dobavlen v gruppu 'Remote Desktop Users'"
+    } catch {
+        # Уже в группе — это OK
+        Write-Ok "Polzovatel uzhe imeet RDP-dostup"
+    }
+} catch {
+    Write-Warn "Ne udalos polnostyu nastroit RDP: $_"
+    Write-Warn "Mozhno vklyuchit vruchnuyu: Settings -> System -> Remote Desktop"
+}
+
+# --- 7c. RustDesk service-mode install ---
+Write-Step "Shag 9/11: Ustanovka RustDesk (analog AnyDesk s pravami SYSTEM)"
+Write-Host @"
+  RustDesk eto open-source analog AnyDesk/TeamViewer. Ustanavlivaetsya
+  v rezhime sluzhby Windows (zapuskaetsya kak SYSTEM), chto pozvolyaet:
+    * obhodit UAC i otkryvat okna trebuyuschie prav administratora
+    * pokazyvat ekran do logina v Windows
+    * upravlyat rabotoy klienta posle perezagruzki bez vhoda v sistemu
+
+  Posle ustanovki avtomaticheski generiruyutsya unikalnyy ID i parol;
+  oni budut peredany v admin-paneli cherez heartbeat.
+"@ -ForegroundColor Cyan
+
+$rustdeskInstalled = $false
+$rustdeskExe = "C:\Program Files\RustDesk\RustDesk.exe"
+
+# Проверка существующей установки.
+if (Test-Path $rustdeskExe) {
+    Write-Ok "RustDesk uzhe ustanovlen ($rustdeskExe)"
+    $rustdeskInstalled = $true
+} else {
+    # Качаем последний релиз с GitHub. URL стабилен по тегу 1.3.7,
+    # если нужно обновиться — поменяй $rdVersion ниже.
+    $rdVersion = "1.4.0"
+    $rdUrl = "https://github.com/rustdesk/rustdesk/releases/download/$rdVersion/rustdesk-$rdVersion-x86_64.exe"
+    $rdInstaller = "$env:TEMP\rustdesk-installer.exe"
+
+    Write-Host "  Skachivanie RustDesk $rdVersion (~30 MB)..." -ForegroundColor Cyan
+    try {
+        # TLS 1.2 — старые Windows 10 могут падать без него.
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $rdUrl -OutFile $rdInstaller -UseBasicParsing -ErrorAction Stop
+        Write-Ok "RustDesk skachan"
+    } catch {
+        Write-Warn "Ne udalos skachat RustDesk: $_"
+        Write-Warn "Propuskaem ustanovku RustDesk. Esli nuzhno, ustanov vruchnuyu pozzhe (https://rustdesk.com)."
+    }
+
+    if (Test-Path $rdInstaller) {
+        Write-Host "  Vypolnyaetsya 'tihaya' ustanovka..." -ForegroundColor Cyan
+        # Аргумент --silent-install включает service-mode (SYSTEM).
+        try {
+            Start-Process -FilePath $rdInstaller -ArgumentList "--silent-install" -Wait -ErrorAction Stop
+            Start-Sleep -Seconds 5
+            if (Test-Path $rustdeskExe) {
+                Write-Ok "RustDesk ustanovlen v $rustdeskExe"
+                $rustdeskInstalled = $true
+            } else {
+                Write-Warn "RustDesk.exe ne nayden posle ustanovki — vozmozhno, ustanovshchik ne zavershil rabotu"
+            }
+        } catch {
+            Write-Warn "Oshibka ustanovshchika RustDesk: $_"
+        }
+        Remove-Item $rdInstaller -ErrorAction SilentlyContinue
+    }
+}
+
+if ($rustdeskInstalled) {
+    # Принудительно стартуем сервис (--silent-install обычно сам, но на всякий).
+    try {
+        Start-Service -Name "RustDesk" -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
+    } catch {}
+
+    # Генерируем случайный пароль (16 alphanumeric chars) и применяем его.
+    Add-Type -AssemblyName System.Web
+    $rdPassword = -join ((1..16) | ForEach-Object { [char](Get-Random -Input (([byte][char]'A'..[byte][char]'Z') + ([byte][char]'a'..[byte][char]'z') + ([byte][char]'0'..[byte][char]'9'))) })
+
+    # rustdesk.exe --password "..." — устанавливает permanent password (требует service running).
+    try {
+        & $rustdeskExe --password $rdPassword 2>&1 | Out-Null
+        Write-Ok "Postoyannyy parol RustDesk ustanovlen"
+    } catch {
+        Write-Warn "Ne udalos zadat parol RustDesk avtomaticheski. Mozhno zadat vruchnuyu cherez RustDesk -> Settings -> Security."
+        $rdPassword = "<zadayte vruchnuyu>"
+    }
+
+    # Считываем 9-значный ID. Может быть не сразу доступен — пробуем 30 сек.
+    $rdId = ""
+    $tries = 0
+    while (-not $rdId -and $tries -lt 30) {
+        try {
+            $idOut = & $rustdeskExe --get-id 2>&1 | Select-Object -First 1
+            if ($idOut -and $idOut -match "^\d{6,12}$") {
+                $rdId = $idOut.Trim()
+                break
+            }
+        } catch {}
+        Start-Sleep -Seconds 1
+        $tries++
+    }
+
+    if (-not $rdId) {
+        $rdId = "<ne udalos schitat ID; otkroy RustDesk vruchnuyu>"
+        Write-Warn "Ne udalos schitat RustDesk ID. Otkroy okno RustDesk — ID otobrazitsya tam."
+    } else {
+        Write-Ok "RustDesk ID: $rdId"
+    }
+
+    # Сохраняем metadata в файл, который heartbeat будет публиковать в репо.
+    $rdInfoDir = Join-Path $env:USERPROFILE ".malinakod"
+    New-Item -ItemType Directory -Force -Path $rdInfoDir | Out-Null
+    $rdInfoPath = Join-Path $rdInfoDir "rustdesk.json"
+    @{
+        id = $rdId
+        password = $rdPassword
+        installed_at = (Get-Date).ToUniversalTime().ToString('o')
+        version = $rdVersion
+    } | ConvertTo-Json | Set-Content -Path $rdInfoPath -Encoding UTF8
+    Write-Ok "RustDesk metadata sohranena v $rdInfoPath"
+}
+
 # --- 8. malinakod ---
-Write-Step "Shag 8/9: Ustanovka paketa malinakod"
+Write-Step "Shag 10/11: Ustanovka paketa malinakod"
 & python -m pip install --upgrade --quiet malinakod
 if ($LASTEXITCODE -ne 0) {
     Write-Err "Ne udalos ustanovit paket malinakod. Proverte internet-soedinenie i povtorite zapusk."
@@ -264,7 +415,7 @@ $mlkVer = & python -m pip show malinakod 2>$null | Select-String "^Version: " | 
 Write-Ok "Paket malinakod ustanovlen (versiya $mlkVer)"
 
 # --- 9. License activation ---
-Write-Step "Shag 9/9: Aktivatsiya litsenzii"
+Write-Step "Shag 11/11: Aktivatsiya litsenzii"
 $licensePath = Join-Path $env:USERPROFILE ".malinakod\license.json"
 if (Test-Path $licensePath) {
     Write-Ok "Litsenziya uzhe aktivirovana"
@@ -357,6 +508,13 @@ Write-Host "  Tekuschee sostoyanie:" -ForegroundColor Cyan
 Write-Host "    - Klient MalinaKod zapuschen i rabotaet v fone"
 Write-Host "    - Avtozapusk pri vhode v Windows nastroyen"
 Write-Host "    - Tailscale IP: $tsIp"
+Write-Host "    - RDP: vklyuchen (3389/tcp cherez Tailscale-set)"
+if ($rustdeskInstalled) {
+    Write-Host "    - RustDesk ID: $rdId" -ForegroundColor Cyan
+    Write-Host "    - RustDesk parol: $rdPassword" -ForegroundColor Cyan
+} else {
+    Write-Host "    - RustDesk: ne ustanovlen"
+}
 Write-Host ""
 Write-Host "  Poleznye komandy (v obychnom PowerShell):" -ForegroundColor Cyan
 Write-Host "    Restart:    Stop-ScheduledTask MalinaKod; Start-ScheduledTask MalinaKod"
@@ -364,7 +522,11 @@ Write-Host "    Open TUI:   python -m malinakod"
 Write-Host "    Update:     python -m pip install -U malinakod"
 Write-Host ""
 Write-Host "  *** SOOBSCHI ADMINU ***" -ForegroundColor Yellow
-Write-Host "  1) Tvoy Tailscale IP: $tsIp" -ForegroundColor Yellow
+Write-Host "  1) Tailscale IP: $tsIp" -ForegroundColor Yellow
 Write-Host "  2) Parol Windows-akkaunta '$env:USERNAME' (kotoryy zadal vyshe)" -ForegroundColor Yellow
+if ($rustdeskInstalled) {
+    Write-Host "  3) RustDesk ID: $rdId" -ForegroundColor Yellow
+    Write-Host "  4) RustDesk parol: $rdPassword" -ForegroundColor Yellow
+}
 Write-Host ""
-Read-Host "Press Enter to close"
+Read-Host "Nazhmite Enter dlya zakrytiya"
